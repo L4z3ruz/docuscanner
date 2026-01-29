@@ -3,7 +3,7 @@ import numpy as np
 framewidth = 480
 frameheight = 240
 # Change this index if needed (0, 1, or 2)
-cap = cv2.VideoCapture(1)
+cap = cv2.VideoCapture(0)
 cap.set(3, framewidth)
 cap.set(4, frameheight) 
 
