@@ -1,91 +1,138 @@
 import cv2
 import numpy as np
-framewidth = 480
-frameheight = 240
-# Change this index if needed (0, 1, or 2)
-cap = cv2.VideoCapture(0)
-cap.set(3, framewidth)
-cap.set(4, frameheight) 
+import tkinter as tk
+from PIL import Image, ImageTk
+import datetime
+import os
 
-def empty(a):
-    pass
+# ----------------------------
+# Camera Setup
+# ----------------------------
+cap = cv2.VideoCapture(2, cv2.CAP_DSHOW)
+cap.set(3, 1280)
+cap.set(4, 720)
 
-cv2.namedWindow("Parameters")
-cv2.resizeWindow("Parameters", 640, 240)
-cv2.createTrackbar("Threshold1", "Parameters", 100, 255, empty)
-cv2.createTrackbar("Threshold2", "Parameters", 100, 255, empty)
-cv2.createTrackbar("Area", "Parameters", 5000, 30000, empty)
+os.makedirs("scans", exist_ok=True)
 
+captured_scan = None
 
-def stackImages(scale, imgArray):
-    rows = len(imgArray)
-    cols = len(imgArray[0])
-    rowsAvailable = isinstance(imgArray[0], list)
-    width =imgArray[0][0].shape[1]
-    height = imgArray[0][0].shape[0]
-    if rowsAvailable:
-        for x in range (0, rows):
-            for y in range(0, cols):
-                if imgArray[x][y].shape[:2] == imgArray[0][0].shape[:2]:
-                    imgArray[x][y] = cv2.resize(imgArray[x][y], (0,0), None, scale, scale)
-                else:
-                    imgArray[x][y] = cv2.resize(imgArray[x][y], (imgArray[0][0].shape[1], imgArray[0][0].shape[0]), None, scale, scale)
-                if len(imgArray[x][y].shape) == 2: imgArray[x][y] = cv2.cvtColor(imgArray[x][y], cv2.COLOR_GRAY2BGR)
-        imageBlank = np.zeros((height, width, 3), np.uint8)
-        hor = [imageBlank]*rows
-        hor_con = [imageBlank] *rows
-        for x in range (0,rows):
-            hor[x] = np.hstack(imgArray[x])
-        ver = np.vstack(hor)
-    else:
-        for x in range(0,rows):
-            if imgArray[x].shape[:2] == imgArray[0].shape[:2]:
-                imgArray[x] = cv2.resize(imgArray[x], (0,0), None, scale, scale)
-            else:
-                imgArray[x] = cv2.resize(imgArray[x], (imgArray[0].shape[1], imgArray[0]), None, scale, scale)
-            if len(imgArray[x].shape) ==2: imgArray[x] = cv2.cvtColor(imgArray[x], cv2.COLOR_GRAY2BGR)
-        hor = np.hstack(imgArray)
-        ver = hor
-    return ver
+# ----------------------------
+# Warp + Detection Functions
+# ----------------------------
+def reorder(points):
+    points = points.reshape((4,2))
+    newPoints = np.zeros((4,1,2), dtype=np.int32)
 
-def getContours(img,imgContour):
-    
-    contours, hierarchy = cv2.findContours(img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    add = points.sum(1)
+    newPoints[0] = points[np.argmin(add)]
+    newPoints[3] = points[np.argmax(add)]
+
+    diff = np.diff(points, axis=1)
+    newPoints[1] = points[np.argmin(diff)]
+    newPoints[2] = points[np.argmax(diff)]
+
+    return newPoints
+
+def getBiggestContour(img):
+    biggest = np.array([])
+    max_area = 0
+
+    contours, _ = cv2.findContours(img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
     for cnt in contours:
         area = cv2.contourArea(cnt)
-        if area > areMin:
-            cv2.drawContours(imgContour, cnt, -1, (255, 0, 0), 3)
+        if area > 10000:
             peri = cv2.arcLength(cnt, True)
             approx = cv2.approxPolyDP(cnt, 0.02 * peri, True)
-            objCor = len(approx)
-            x, y, w, h = cv2.boundingRect(approx)
+            if area > max_area and len(approx) == 4:
+                biggest = approx
+                max_area = area
 
-            cv2.rectangle(imgContour, (x, y), (x + w, y + h), (0, 255, 0), 2)
-            cv2.putText(imgContour, "Points: " + str(objCor), (x + w + 20, y + 20), cv2.FONT_HERSHEY_COMPLEX, 0.7,
-                        (0, 255, 0), 2)
-            cv2.putText(imgContour, "Area: " + str(int(area)), (x + w + 20, y + 45), cv2.FONT_HERSHEY_COMPLEX, 0.7,
-                        (0, 255, 0), 2)
+    return biggest
 
-         
-    
-while True:
-    success, img = cap.read()
-    imgContour = img.copy()
-    thresh1 = cv2.getTrackbarPos("Threshold1", "Parameters")
-    thresh2 = cv2.getTrackbarPos("Threshold2", "Parameters")
-    areMin = cv2.getTrackbarPos("Area", "Parameters")    
-    imgBlur = cv2.GaussianBlur(img, (7, 7), 1)
-    imgGray = cv2.cvtColor(imgBlur, cv2.COLOR_BGR2GRAY)
-    imgCanny = cv2.Canny(imgGray, thresh1, thresh2)
-    kernel = np.ones((5, 5))
-    imgDil = cv2.dilate(imgCanny, kernel, iterations=1)
-    getContours(imgDil, imgContour)
+def warpImage(img, points):
+    points = reorder(points)
+    pts = points.reshape(4,2)
 
-    imgStack = stackImages(0.8, ([img, imgGray, imgCanny],[imgDil, imgContour, img]))
+    width = int(max(
+        np.linalg.norm(pts[0]-pts[1]),
+        np.linalg.norm(pts[2]-pts[3])
+    ))
 
+    height = int(max(
+        np.linalg.norm(pts[0]-pts[2]),
+        np.linalg.norm(pts[1]-pts[3])
+    ))
 
-    if not success:
-            break
-    cv2.imshow("Webcam", imgStack)
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
+    dst = np.float32([[0,0],[width,0],[0,height],[width,height]])
+    matrix = cv2.getPerspectiveTransform(np.float32(points), dst)
+    warped = cv2.warpPerspective(img, matrix, (width, height))
+
+    return warped
+
+def enhanceColorNatural(img):
+    img = cv2.bilateralFilter(img, 7, 50, 50)
+
+    lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+    l, a, b = cv2.split(lab)
+
+    clahe = cv2.createCLAHE(clipLimit=1.5, tileGridSize=(8,8))
+    l = clahe.apply(l)
+
+    lab = cv2.merge((l,a,b))
+    return cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+
+# ----------------------------
+# Tkinter UI
+# ----------------------------
+root = tk.Tk()
+root.title("Document Scanner")
+
+label = tk.Label(root)
+label.pack()
+
+def save_scan():
+    global captured_scan
+    if captured_scan is not None:
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        path = f"scans/scan_{timestamp}.jpg"
+        cv2.imwrite(path, captured_scan)
+        print("Saved:", path)
+
+save_button = tk.Button(root, text="Save Scan", command=save_scan)
+save_button.pack()
+
+def update_frame():
+    global captured_scan
+
+    ret, frame = cap.read()
+    if not ret:
+        return
+
+    img_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    img_canny = cv2.Canny(img_gray, 50, 150)
+    kernel = np.ones((5,5), np.uint8)
+    img_dil = cv2.dilate(img_canny, kernel, iterations=2)
+
+    biggest = getBiggestContour(img_dil)
+
+    if biggest.size != 0:
+        cv2.drawContours(frame, biggest, -1, (0,255,0), 3)
+        warped = warpImage(frame, biggest)
+        captured_scan = enhanceColorNatural(warped)
+
+    # Convert for Tkinter
+    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    img_pil = Image.fromarray(rgb)
+    imgtk = ImageTk.PhotoImage(image=img_pil)
+
+    label.imgtk = imgtk
+    label.configure(image=imgtk)
+
+    root.after(10, update_frame)
+
+update_frame()
+root.mainloop()
+
+cap.release()
+cv2.destroyAllWindows()
