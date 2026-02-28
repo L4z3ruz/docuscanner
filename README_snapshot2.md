@@ -43,3 +43,6 @@ Edit near the top of `cv1/snapshot2.py`:
 - If the camera does not open, try `CAMERA_INDEX = 0` or `1`.
 - If no document is detected, increase lighting or place the paper against a contrasting background.
 
+## How to connect with phone camera
+- (1) download droidcam client on pc and droidcam app on phone and connect with it(both devices need to be on the   same wifi network)
+- (2) follow instructions from this video. [vdo. ninja how to guide](https://youtu.be/QaA_6aOP9z8?si=QtmdI47bNBdFg7Xe)
