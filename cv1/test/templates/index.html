@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>DocScan</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@700;800&display=swap" rel="stylesheet"/>
+<style>
+  :root {
+    --bg:      #0d0d0f;
+    --surface: #161618;
+    --card:    #1c1c1f;
+    --border:  #2a2a2e;
+    --accent:  #e8ff47;
+    --accent2: #47ffb8;
+    --text:    #f0f0f0;
+    --muted:   #666;
+    --danger:  #ff4757;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'DM Mono', monospace;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+  }
+
+  /* ── Header ── */
+  header {
+    padding: 1.2rem 2rem;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 1rem;
+    background: var(--surface);
+  }
+  .logo { font-family: 'Syne', sans-serif; font-size: 1.5rem; font-weight: 800; letter-spacing: -.03em; }
+  .logo span { color: var(--accent); }
+  .badge {
+    font-size: .65rem; padding: .2rem .5rem; border-radius: 2px;
+    background: var(--accent); color: #000; font-weight: 500; text-transform: uppercase;
+  }
+  .status-pill {
+    margin-left: auto; font-size: .7rem; padding: .25rem .7rem; border-radius: 20px;
+    border: 1px solid var(--border); color: var(--muted);
+    display: flex; align-items: center; gap: .4rem;
+  }
+  .status-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
+  .status-pill.found .dot  { background: var(--accent2); box-shadow: 0 0 6px var(--accent2); }
+  .status-pill.found { color: var(--accent2); border-color: var(--accent2); }
+
+  /* ── Layout ── */
+  main {
+    display: grid;
+    grid-template-columns: 1fr 380px;
+    gap: 0;
+    height: calc(100vh - 58px - 48px);
+  }
+
+  /* ── Camera ── */
+  .cam-wrap {
+    position: relative;
+    background: #000;
+    overflow: hidden;
+  }
+  video, .picked-image {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .picked-image { display: none; }
+  .cam-wrap.show-image video { display: none; }
+  .cam-wrap.show-image .picked-image { display: block; }
+  canvas#overlay {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+  }
+  .cam-hint {
+    position: absolute; bottom: 1rem; left: 50%; transform: translateX(-50%);
+    font-size: .7rem; color: rgba(255,255,255,.4); letter-spacing: .1em;
+    text-transform: uppercase; pointer-events: none;
+  }
+
+  /* ── Panel ── */
+  .panel {
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+
+  .panel-tabs {
+    display: flex; border-bottom: 1px solid var(--border);
+  }
+  .tab {
+    flex: 1; padding: .75rem; font-size: .72rem; letter-spacing: .08em;
+    text-transform: uppercase; text-align: center;
+    cursor: pointer; color: var(--muted); border: none; background: none;
+    border-bottom: 2px solid transparent; transition: all .2s;
+  }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  .tab-content { display: none; flex: 1; overflow-y: auto; padding: 1.2rem; flex-direction: column; gap: 1rem; }
+  .tab-content.active { display: flex; }
+
+  /* ── Controls ── */
+  .ctrl-group { display: flex; flex-direction: column; gap: .5rem; }
+  .ctrl-label { font-size: .65rem; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); }
+
+  .btn {
+    width: 100%; padding: .8rem; border: none; cursor: pointer;
+    font-family: 'DM Mono', monospace; font-size: .8rem; letter-spacing: .05em;
+    border-radius: 4px; transition: all .15s; text-transform: uppercase;
+  }
+  .btn-primary { background: var(--accent); color: #000; font-weight: 500; }
+  .btn-primary:hover { background: #d4eb2a; }
+  .btn-primary:active { transform: scale(.98); }
+  .btn-secondary { background: var(--card); color: var(--text); border: 1px solid var(--border); }
+  .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-danger { background: transparent; color: var(--danger); border: 1px solid var(--danger); }
+  .btn-danger:hover { background: var(--danger); color: #fff; }
+
+  .mode-toggle {
+    display: flex; border: 1px solid var(--border); border-radius: 4px; overflow: hidden;
+  }
+  .mode-btn {
+    flex: 1; padding: .5rem; border: none; cursor: pointer;
+    font-family: 'DM Mono', monospace; font-size: .7rem; text-transform: uppercase;
+    letter-spacing: .07em; background: none; color: var(--muted); transition: all .2s;
+  }
+  .mode-btn.active { background: var(--card); color: var(--text); }
+
+  /* ── Result preview ── */
+  .result-img-wrap {
+    border: 1px solid var(--border); border-radius: 4px; overflow: hidden;
+    background: #000; min-height: 140px; display: flex; align-items: center; justify-content: center;
+  }
+  .result-img-wrap img { width: 100%; display: block; }
+  .result-placeholder { color: var(--muted); font-size: .7rem; }
+
+  /* ── OCR ── */
+  .ocr-box {
+    background: var(--card); border: 1px solid var(--border); border-radius: 4px;
+    padding: .8rem; font-size: .72rem; line-height: 1.6;
+    white-space: pre-wrap; color: var(--text); flex: 1; min-height: 120px;
+    max-height: 220px; overflow-y: auto; resize: none;
+  }
+  .ocr-box:empty::before { content: 'OCR text will appear here…'; color: var(--muted); }
+
+  /* ── History ── */
+  .history-list { display: flex; flex-direction: column; gap: .5rem; }
+  .hist-item {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 4px; padding: .6rem .8rem;
+    display: flex; align-items: center; gap: .6rem; cursor: pointer;
+    transition: border-color .2s;
+  }
+  .hist-item:hover { border-color: var(--accent); }
+  .hist-thumb { width: 40px; height: 40px; object-fit: cover; border-radius: 2px; }
+  .hist-meta { flex: 1; }
+  .hist-name { font-size: .7rem; color: var(--text); }
+  .hist-time { font-size: .62rem; color: var(--muted); }
+
+  /* ── Spinner ── */
+  .spinner {
+    width: 20px; height: 20px; border: 2px solid var(--border);
+    border-top-color: var(--accent); border-radius: 50%;
+    animation: spin .6s linear infinite; display: none;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .scanning-overlay {
+    position: absolute; inset: 0; background: rgba(0,0,0,.5);
+    display: none; align-items: center; justify-content: center; flex-direction: column; gap: 1rem;
+  }
+  .scanning-overlay.active { display: flex; }
+  .scan-line {
+    position: absolute; left: 0; right: 0; height: 2px;
+    background: var(--accent); opacity: .8;
+    box-shadow: 0 0 12px var(--accent);
+    animation: scanLine 1.4s ease-in-out infinite;
+  }
+  @keyframes scanLine {
+    0%   { top: 10%; }
+    50%  { top: 90%; }
+    100% { top: 10%; }
+  }
+  .scan-msg { color: var(--accent); font-size: .8rem; letter-spacing: .1em; text-transform: uppercase; z-index: 1; }
+
+  /* ── Footer ── */
+  footer {
+    padding: .7rem 2rem; border-top: 1px solid var(--border);
+    background: var(--surface); font-size: .62rem; color: var(--muted);
+    display: flex; gap: 2rem;
+  }
+  footer span { display: flex; align-items: center; gap: .4rem; }
+
+  /* ── Scrollbar ── */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: var(--surface); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">Doc<span>Scan</span></div>
+  <div class="badge">CV-Powered</div>
+  <div class="status-pill" id="statusPill">
+    <span class="dot"></span>
+    <span id="statusText">No document</span>
+  </div>
+</header>
+
+<main>
+  <!-- Camera -->
+  <div class="cam-wrap">
+    <video id="video" autoplay playsinline muted></video>
+    <img id="pickedImage" class="picked-image" alt="Selected image preview"/>
+    <canvas id="overlay"></canvas>
+    <div class="scanning-overlay" id="scanOverlay">
+      <div class="scan-line"></div>
+      <div class="scan-msg">Scanning…</div>
+    </div>
+    <div class="cam-hint" id="camHint">Point camera at a document</div>
+  </div>
+
+  <!-- Panel -->
+  <div class="panel">
+    <div class="panel-tabs">
+      <button class="tab active" onclick="switchTab('scan')">Scan</button>
+      <button class="tab" onclick="switchTab('result')">Result</button>
+      <button class="tab" onclick="switchTab('history')">History</button>
+    </div>
+
+    <!-- Scan tab -->
+    <div class="tab-content active" id="tab-scan">
+      <div class="ctrl-group">
+        <div class="ctrl-label">Mode</div>
+        <div class="mode-toggle">
+          <button class="mode-btn active" id="modeScan" onclick="setMode('scan')">B&W Scan</button>
+          <button class="mode-btn" id="modePhoto" onclick="setMode('photo')">Color</button>
+        </div>
+      </div>
+
+      <div class="ctrl-group">
+        <div class="ctrl-label">Camera</div>
+        <select id="camSelect" class="btn btn-secondary" style="text-align:left;cursor:pointer" onchange="switchCamera()"></select>
+      </div>
+
+      <div style="flex:1"></div>
+
+      <button class="btn btn-primary" id="scanBtn" onclick="doScan()">
+        ⬤ &nbsp;Capture &amp; Scan
+      </button>
+      <button class="btn btn-secondary" onclick="selectImage()">Select Image</button>
+      <input id="fileInput" type="file" accept="image/*" style="display:none" onchange="handleFileSelect(event)"/>
+      <button class="btn btn-secondary" onclick="resetResult()">Clear</button>
+    </div>
+
+    <!-- Result tab -->
+    <div class="tab-content" id="tab-result">
+      <div class="ctrl-group">
+        <div class="ctrl-label">Scanned</div>
+        <div class="result-img-wrap" id="resultWrap">
+          <span class="result-placeholder">No scan yet</span>
+        </div>
+      </div>
+
+      <div class="ctrl-group" style="flex-direction:row;gap:.5rem">
+        <button class="btn btn-secondary" id="saveResult" style="display:none" onclick="saveResult()">Save</button>
+        <button class="btn btn-secondary" id="dlColor" style="display:none" onclick="download('color')">↓ Color</button>
+        <button class="btn btn-secondary" id="dlScan" style="display:none" onclick="download('scan')">↓ Scan</button>
+      </div>
+
+      <div class="ctrl-group" style="flex:1;display:flex;flex-direction:column;gap:.5rem">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div class="ctrl-label">OCR Text</div>
+          <button class="btn btn-secondary" style="width:auto;padding:.2rem .5rem;font-size:.65rem" onclick="copyOCR()">Copy</button>
+        </div>
+        <div class="ocr-box" id="ocrBox"></div>
+      </div>
+    </div>
+
+    <!-- History tab -->
+    <div class="tab-content" id="tab-history">
+      <div class="ctrl-label">Recent scans</div>
+      <div class="history-list" id="histList">
+        <div style="color:var(--muted);font-size:.7rem">No scans yet</div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <span>⬡ OpenCV 4 &nbsp;·&nbsp; Tesseract OCR</span>
+  <span id="fpsLabel">FPS: –</span>
+  <span id="resLabel">RES: –</span>
+</footer>
+
+<script>
+// ─── State ───────────────────────────────────────────────────────────────────
+let stream = null;
+let detectInterval = null;
+let scanMode = 'scan';
+let lastResult = null;
+let history = [];
+let selectedImageB64 = null;
+
+const video    = document.getElementById('video');
+const pickedImage = document.getElementById('pickedImage');
+const overlay  = document.getElementById('overlay');
+const ctx      = overlay.getContext('2d');
+const camWrap  = document.querySelector('.cam-wrap');
+
+// FPS tracking
+let frameCount = 0, lastFpsTime = Date.now();
+
+// ─── Camera setup ────────────────────────────────────────────────────────────
+async function initCamera() {
+  const sel = document.getElementById('camSelect');
+
+  // Ask for permission first so device labels and full list are available.
+  await startStream();
+
+  await populateCameraList();
+  const firstId = sel.options[0]?.value;
+  if (firstId) await startStream(firstId);
+}
+
+async function populateCameraList() {
+  const devices = await navigator.mediaDevices.enumerateDevices();
+  const cams = devices.filter(d => d.kind === 'videoinput');
+  const sel = document.getElementById('camSelect');
+  const current = sel.value;
+  sel.innerHTML = '';
+
+  if (!cams.length) {
+    const o = document.createElement('option');
+    o.value = '';
+    o.text = 'No cameras found';
+    sel.appendChild(o);
+    sel.disabled = true;
+    return;
+  }
+
+  sel.disabled = false;
+  cams.forEach((c, i) => {
+    const o = document.createElement('option');
+    o.value = c.deviceId;
+    o.text  = c.label || `Camera ${i+1}`;
+    sel.appendChild(o);
+  });
+
+  if (current) sel.value = current;
+}
+
+async function startStream(deviceId) {
+  useLivePreview();
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  const constraints = {
+    video: {
+      deviceId: deviceId ? { exact: deviceId } : undefined,
+      width: { ideal: 1920 }, height: { ideal: 1080 }
+    }
+  };
+  stream = await navigator.mediaDevices.getUserMedia(constraints);
+  video.srcObject = stream;
+  await new Promise(r => video.onloadedmetadata = r);
+  document.getElementById('resLabel').textContent =
+    `RES: ${video.videoWidth}×${video.videoHeight}`;
+  startDetectionLoop();
+}
+
+async function switchCamera() {
+  const id = document.getElementById('camSelect').value;
+  await startStream(id);
+}
+
+// ─── Detection loop ───────────────────────────────────────────────────────────
+function startDetectionLoop() {
+  if (detectInterval) clearInterval(detectInterval);
+  detectInterval = setInterval(detectFrame, 400);   // ~2.5 fps for detection
+}
+
+function stopDetectionLoop() {
+  if (!detectInterval) return;
+  clearInterval(detectInterval);
+  detectInterval = null;
+}
+
+async function detectFrame() {
+  if (!video.videoWidth) return;
+
+  // FPS
+  frameCount++;
+  const now = Date.now();
+  if (now - lastFpsTime >= 1000) {
+    document.getElementById('fpsLabel').textContent = `FPS: ${frameCount}`;
+    frameCount = 0; lastFpsTime = now;
+  }
+
+  const b64 = captureFrame(320, 240);   // small for speed
+  try {
+    const res = await fetch('/detect', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ image: b64 })
+    });
+    const data = await parseJsonResponse(res, '/detect');
+    drawOverlay(data.found ? data.points : null);
+
+    const pill = document.getElementById('statusPill');
+    const txt  = document.getElementById('statusText');
+    if (data.found) {
+      pill.classList.add('found');
+      txt.textContent = 'Document detected';
+    } else {
+      pill.classList.remove('found');
+      txt.textContent = 'No document';
+    }
+  } catch(e) {}
+}
+
+// ─── Overlay drawing ─────────────────────────────────────────────────────────
+function drawOverlay(normPts) {
+  overlay.width  = video.offsetWidth;
+  overlay.height = video.offsetHeight;
+  ctx.clearRect(0, 0, overlay.width, overlay.height);
+  if (!normPts) return;
+
+  const W = overlay.width, H = overlay.height;
+  const pts = normPts.map(([nx,ny]) => [nx*W, ny*H]);
+
+  // Fill
+  ctx.beginPath();
+  ctx.moveTo(...pts[0]);
+  pts.slice(1).forEach(p => ctx.lineTo(...p));
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(232,255,71,.08)';
+  ctx.fill();
+
+  // Stroke
+  ctx.strokeStyle = '#e8ff47';
+  ctx.lineWidth = 2;
+  ctx.setLineDash([6,4]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Corner dots
+  pts.forEach(([x,y]) => {
+    ctx.beginPath();
+    ctx.arc(x, y, 5, 0, Math.PI*2);
+    ctx.fillStyle = '#e8ff47';
+    ctx.fill();
+  });
+}
+
+// ─── Scan ────────────────────────────────────────────────────────────────────
+async function doScan(imageB64) {
+  const btn = document.getElementById('scanBtn');
+  const overlay2 = document.getElementById('scanOverlay');
+  btn.disabled = true;
+  overlay2.classList.add('active');
+
+  const b64 = imageB64 || selectedImageB64 || captureFrame();   // full resolution
+  try {
+    const res = await fetch('/scan', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ image: b64, mode: scanMode })
+    });
+    const data = await parseJsonResponse(res, '/scan');
+    if (data.ok) {
+      lastResult = data;
+      showResult(data);
+      if (data.warning) {
+        alert(data.warning);
+      }
+      addHistory(data);
+      switchTab('result');
+    } else {
+      alert('Scan failed: ' + (data.error || 'unknown'));
+    }
+  } catch(e) {
+    alert('Error: ' + e.message);
+  }
+
+  btn.disabled = false;
+  overlay2.classList.remove('active');
+}
+
+function showResult(data) {
+  const wrap = document.getElementById('resultWrap');
+  const img  = new Image();
+  img.src = data.scanned;
+  img.style.width = '100%';
+  wrap.innerHTML = '';
+  wrap.appendChild(img);
+
+  document.getElementById('ocrBox').textContent = data.ocr || '(No text detected)';
+  document.getElementById('saveResult').style.display = '';
+  document.getElementById('dlColor').style.display = '';
+  document.getElementById('dlScan').style.display  = '';
+}
+
+function addHistory(data) {
+  history.unshift(data);
+  const list = document.getElementById('histList');
+  if (list.children[0]?.tagName === 'DIV') list.innerHTML = '';
+
+  const item = document.createElement('div');
+  item.className = 'hist-item';
+  const thumb = new Image();
+  thumb.src = data.scanned;
+  thumb.className = 'hist-thumb';
+  const meta = document.createElement('div');
+  meta.className = 'hist-meta';
+  meta.innerHTML = `<div class="hist-name">${data.filename}</div>
+    <div class="hist-time">${new Date().toLocaleTimeString()}</div>`;
+  item.appendChild(thumb);
+  item.appendChild(meta);
+  item.onclick = () => { lastResult = data; showResult(data); switchTab('result'); };
+  list.prepend(item);
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+function captureFrame(w, h) {
+  if (selectedImageB64) return selectedImageB64;
+  const c = document.createElement('canvas');
+  c.width  = w || video.videoWidth;
+  c.height = h || video.videoHeight;
+  c.getContext('2d').drawImage(video, 0, 0, c.width, c.height);
+  return c.toDataURL('image/jpeg', 0.92);
+}
+
+function setMode(m) {
+  scanMode = m;
+  document.getElementById('modeScan').classList.toggle('active', m==='scan');
+  document.getElementById('modePhoto').classList.toggle('active', m==='photo');
+}
+
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach((t,i) => {
+    const names = ['scan','result','history'];
+    t.classList.toggle('active', names[i] === name);
+  });
+  document.querySelectorAll('.tab-content').forEach(c => {
+    c.classList.toggle('active', c.id === 'tab-'+name);
+  });
+}
+
+function download(type) {
+  if (!lastResult) return;
+  const src  = type === 'color' ? lastResult.color : lastResult.scanned;
+  const name = `${lastResult.filename}_${type}.png`;
+  const a    = document.createElement('a');
+  a.href = src; a.download = name; a.click();
+}
+
+function copyOCR() {
+  const text = document.getElementById('ocrBox').textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = event.target;
+    btn.textContent = 'Copied!';
+    setTimeout(() => btn.textContent = 'Copy', 1500);
+  });
+}
+
+async function saveResult() {
+  if (!lastResult) return;
+  const btn = document.getElementById('saveResult');
+  btn.disabled = true;
+  try {
+    const res = await fetch('/save', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        color: lastResult.color,
+        scanned: lastResult.scanned,
+        ocr: lastResult.ocr,
+        filename: lastResult.filename
+      })
+    });
+    const data = await parseJsonResponse(res, '/save');
+    if (!data.ok) throw new Error(data.error || 'Save failed');
+    alert('Saved to outputs/');
+  } catch (e) {
+    alert('Save error: ' + e.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function selectImage() {
+  document.getElementById('fileInput').click();
+}
+
+function handleFileSelect(event) {
+  const file = event.target.files && event.target.files[0];
+  if (!file) return;
+  fileToDataURL(file)
+    .then((dataUrl) => {
+      selectedImageB64 = dataUrl;
+      useImagePreview(dataUrl);
+      return doScan(dataUrl);
+    })
+    .catch((e) => alert('Image load error: ' + e.message));
+  event.target.value = '';
+}
+
+function fileToDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      try {
+        const maxDim = 2000; // keep payload reasonable
+        let w = img.naturalWidth;
+        let h = img.naturalHeight;
+        if (Math.max(w, h) > maxDim) {
+          const scale = maxDim / Math.max(w, h);
+          w = Math.round(w * scale);
+          h = Math.round(h * scale);
+        }
+        const c = document.createElement('canvas');
+        c.width = w;
+        c.height = h;
+        c.getContext('2d').drawImage(img, 0, 0, w, h);
+        const dataUrl = c.toDataURL('image/jpeg', 0.92);
+        URL.revokeObjectURL(url);
+        resolve(dataUrl);
+      } catch (err) {
+        URL.revokeObjectURL(url);
+        reject(err);
+      }
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('Unsupported image format'));
+    };
+    img.src = url;
+  });
+}
+
+async function resetResult() {
+  const shouldRestartCamera = !stream || video.style.display === 'none';
+  lastResult = null;
+  selectedImageB64 = null;
+  document.getElementById('resultWrap').innerHTML = '<span class="result-placeholder">No scan yet</span>';
+  document.getElementById('ocrBox').textContent = '';
+  document.getElementById('saveResult').style.display = 'none';
+  document.getElementById('dlColor').style.display = 'none';
+  document.getElementById('dlScan').style.display  = 'none';
+  drawOverlay(null);
+  if (shouldRestartCamera) {
+    try {
+      const selectedCam = document.getElementById('camSelect').value;
+      await startStream(selectedCam || undefined);
+    } catch (e) {
+      alert('Camera error: ' + e.message);
+    }
+  }
+}
+
+function useImagePreview(dataUrl) {
+  stopDetectionLoop();
+  if (stream) {
+    stream.getTracks().forEach(t => t.stop());
+    stream = null;
+  }
+  video.srcObject = null;
+  pickedImage.src = dataUrl;
+  camWrap.classList.add('show-image');
+  document.getElementById('fpsLabel').textContent = 'FPS: -';
+  document.getElementById('resLabel').textContent = 'RES: Image';
+  document.getElementById('camHint').textContent = 'Selected image preview';
+  document.getElementById('statusPill').classList.remove('found');
+  document.getElementById('statusText').textContent = 'Image selected';
+}
+
+function useLivePreview() {
+  pickedImage.src = '';
+  camWrap.classList.remove('show-image');
+  document.getElementById('camHint').textContent = 'Point camera at a document';
+}
+
+async function parseJsonResponse(res, endpoint) {
+  const contentType = res.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    const text = (await res.text()).trim();
+    const short = text.slice(0, 180).replace(/\s+/g, ' ');
+    throw new Error(`${endpoint} returned ${res.status} and non-JSON: ${short || '(empty response)'}`);
+  }
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error || `${endpoint} failed (${res.status})`);
+  }
+  return data;
+}
+
+// ─── Init ────────────────────────────────────────────────────────────────────
+navigator.mediaDevices.addEventListener('devicechange', () => {
+  populateCameraList().catch(() => {});
+});
+
+initCamera().catch(e => alert('Camera error: ' + e.message));
+</script>
+</body>
+</html>
+
+
+
