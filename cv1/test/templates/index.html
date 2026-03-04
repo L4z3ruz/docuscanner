@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>DocScan</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@700;800&display=swap" rel="stylesheet"/>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 <style>
   :root {
     --bg:      #0d0d0f;
@@ -69,8 +70,12 @@
     inset: 0;
     width: 100%;
     height: 100%;
-    object-fit: cover;
     display: block;
+  }
+  video { object-fit: cover; }
+  .picked-image {
+    object-fit: contain;
+    background: #000;
   }
   .picked-image { display: none; }
   .cam-wrap.show-image video { display: none; }
@@ -272,10 +277,19 @@
         </div>
       </div>
 
-      <div class="ctrl-group" style="flex-direction:row;gap:.5rem">
-        <button class="btn btn-secondary" id="saveResult" style="display:none" onclick="saveResult()">Save</button>
-        <button class="btn btn-secondary" id="dlColor" style="display:none" onclick="download('color')">↓ Color</button>
-        <button class="btn btn-secondary" id="dlScan" style="display:none" onclick="download('scan')">↓ Scan</button>
+      <div class="ctrl-group" id="downloadControls" style="display:none">
+        <div class="ctrl-label">Download</div>
+        <div style="display:flex;gap:.5rem">
+          <select id="downloadType" class="btn btn-secondary" style="text-align:left;cursor:pointer;padding:.7rem">
+            <option value="scan">B&amp;W</option>
+            <option value="color">Color</option>
+          </select>
+          <select id="downloadFormat" class="btn btn-secondary" style="text-align:left;cursor:pointer;padding:.7rem">
+            <option value="jpg">JPG</option>
+            <option value="pdf">PDF</option>
+          </select>
+        </div>
+        <button class="btn btn-secondary" id="downloadMain" onclick="download()">Download</button>
       </div>
 
       <div class="ctrl-group" style="flex:1;display:flex;flex-direction:column;gap:.5rem">
@@ -479,6 +493,7 @@ async function doScan(imageB64) {
     if (data.ok) {
       lastResult = data;
       showResult(data);
+      autoSaveResult(data).catch(() => {});
       if (data.warning) {
         alert(data.warning);
       }
@@ -504,9 +519,7 @@ function showResult(data) {
   wrap.appendChild(img);
 
   document.getElementById('ocrBox').textContent = data.ocr || '(No text detected)';
-  document.getElementById('saveResult').style.display = '';
-  document.getElementById('dlColor').style.display = '';
-  document.getElementById('dlScan').style.display  = '';
+  document.getElementById('downloadControls').style.display = '';
 }
 
 function addHistory(data) {
@@ -555,12 +568,17 @@ function switchTab(name) {
   });
 }
 
-function download(type) {
+function download() {
   if (!lastResult) return;
+  const type = document.getElementById('downloadType').value;
+  const format = document.getElementById('downloadFormat').value;
   const src  = type === 'color' ? lastResult.color : lastResult.scanned;
-  const name = `${lastResult.filename}_${type}.png`;
-  const a    = document.createElement('a');
-  a.href = src; a.download = name; a.click();
+  const baseName = `${lastResult.filename}_${type}`;
+  if (format === 'pdf') {
+    exportAsPdf(src, baseName).catch((e) => alert('PDF export error: ' + e.message));
+    return;
+  }
+  exportAsJpg(src, baseName).catch((e) => alert('JPG export error: ' + e.message));
 }
 
 function copyOCR() {
@@ -572,28 +590,23 @@ function copyOCR() {
   });
 }
 
-async function saveResult() {
-  if (!lastResult) return;
-  const btn = document.getElementById('saveResult');
-  btn.disabled = true;
+async function autoSaveResult(result) {
+  if (!result) return;
   try {
     const res = await fetch('/save', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({
-        color: lastResult.color,
-        scanned: lastResult.scanned,
-        ocr: lastResult.ocr,
-        filename: lastResult.filename
+        color: result.color,
+        scanned: result.scanned,
+        ocr: result.ocr,
+        filename: result.filename
       })
     });
     const data = await parseJsonResponse(res, '/save');
-    if (!data.ok) throw new Error(data.error || 'Save failed');
-    alert('Saved to outputs/');
+    if (!data.ok) throw new Error(data.error || 'Auto-save failed');
   } catch (e) {
-    alert('Save error: ' + e.message);
-  } finally {
-    btn.disabled = false;
+    console.warn('Auto-save error:', e.message);
   }
 }
 
@@ -654,9 +667,7 @@ async function resetResult() {
   selectedImageB64 = null;
   document.getElementById('resultWrap').innerHTML = '<span class="result-placeholder">No scan yet</span>';
   document.getElementById('ocrBox').textContent = '';
-  document.getElementById('saveResult').style.display = 'none';
-  document.getElementById('dlColor').style.display = 'none';
-  document.getElementById('dlScan').style.display  = 'none';
+  document.getElementById('downloadControls').style.display = 'none';
   drawOverlay(null);
   if (shouldRestartCamera) {
     try {
@@ -702,6 +713,54 @@ async function parseJsonResponse(res, endpoint) {
     throw new Error(data.error || `${endpoint} failed (${res.status})`);
   }
   return data;
+}
+
+async function exportAsJpg(src, baseName) {
+  const img = await loadImage(src);
+  const c = document.createElement('canvas');
+  c.width = img.naturalWidth || img.width;
+  c.height = img.naturalHeight || img.height;
+  const g = c.getContext('2d');
+  g.fillStyle = '#ffffff';
+  g.fillRect(0, 0, c.width, c.height);
+  g.drawImage(img, 0, 0, c.width, c.height);
+  const jpg = c.toDataURL('image/jpeg', 0.95);
+  const a = document.createElement('a');
+  a.href = jpg;
+  a.download = `${baseName}.jpg`;
+  a.click();
+}
+
+async function exportAsPdf(src, baseName) {
+  if (!window.jspdf || !window.jspdf.jsPDF) {
+    throw new Error('PDF library failed to load');
+  }
+  const img = await loadImage(src);
+  const w = img.naturalWidth || img.width;
+  const h = img.naturalHeight || img.height;
+
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const g = c.getContext('2d');
+  g.fillStyle = '#ffffff';
+  g.fillRect(0, 0, w, h);
+  g.drawImage(img, 0, 0, w, h);
+  const jpg = c.toDataURL('image/jpeg', 0.95);
+
+  const orientation = w >= h ? 'landscape' : 'portrait';
+  const pdf = new window.jspdf.jsPDF({ orientation, unit: 'px', format: [w, h] });
+  pdf.addImage(jpg, 'JPEG', 0, 0, w, h);
+  pdf.save(`${baseName}.pdf`);
+}
+
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('Could not load image for export'));
+    img.src = src;
+  });
 }
 
 // ─── Init ────────────────────────────────────────────────────────────────────

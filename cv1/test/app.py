@@ -164,6 +164,7 @@ def scan():
 
     warped = four_point_transform(img, pts)
     color_bytes, bw_bytes, bw_mat = enhance(warped, mode=scan_mode)
+    scanned_bytes = color_bytes if scan_mode == "photo" else bw_bytes
 
     # OCR (non-fatal: scan can succeed even if OCR tooling is unavailable).
     ocr_text = ""
@@ -180,12 +181,12 @@ def scan():
     color_path = os.path.join(SAVE_DIR, f"{ts}_color.png")
     bw_path    = os.path.join(SAVE_DIR, f"{ts}_scanned.png")
     cv2.imwrite(color_path, warped)
-    open(bw_path, "wb").write(bw_bytes)
+    open(bw_path, "wb").write(scanned_bytes)
 
     return jsonify({
         "ok":        True,
         "color":     _to_b64(color_bytes),
-        "scanned":   _to_b64(bw_bytes),
+        "scanned":   _to_b64(scanned_bytes),
         "ocr":       ocr_text,
         "filename":  ts,
         "warning":   warning,
