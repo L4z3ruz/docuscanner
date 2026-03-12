@@ -618,13 +618,34 @@ function handleFileSelect(event) {
   const file = event.target.files && event.target.files[0];
   if (!file) return;
   fileToDataURL(file)
-    .then((dataUrl) => {
+    .then(async (dataUrl) => {
       selectedImageB64 = dataUrl;
       useImagePreview(dataUrl);
+      await detectStillImage(dataUrl);
       return doScan(dataUrl);
     })
     .catch((e) => alert('Image load error: ' + e.message));
   event.target.value = '';
+}
+
+async function detectStillImage(imageB64) {
+  try {
+    const res = await fetch('/detect', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ image: imageB64 })
+    });
+    const data = await parseJsonResponse(res, '/detect');
+    drawOverlay(data.found ? data.points : null);
+    const pill = document.getElementById('statusPill');
+    const txt  = document.getElementById('statusText');
+    pill.classList.toggle('found', data.found);
+    txt.textContent = data.found ? 'Document detected' : 'No document';
+  } catch (e) {
+    drawOverlay(null);
+    document.getElementById('statusPill').classList.remove('found');
+    document.getElementById('statusText').textContent = 'Image selected';
+  }
 }
 
 function fileToDataURL(file) {
